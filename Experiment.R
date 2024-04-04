@@ -1,0 +1,131 @@
+# Set working directory
+setwd("./")
+
+install.packages("devtools", repos = "http://cran.us.r-project.org")  ## if not already installed
+devtools::install_github("mtorchiano/effsize")
+install.packages('BayesFactor', dependencies = TRUE, repos = "http://cran.us.r-project.org")
+
+# Source the functions with the rankSumGibbsSampler and signRankGibbsSampler
+source('signRankSampler.R')
+source('rankSumSampler.R')
+
+# install.packages(c("effsize", "BayesFactor", "sn", "parallel", "logspline", "foreach", "doMC"))
+library(effsize)
+library(BayesFactor)
+library(sn)
+library(parallel)
+library(logspline)
+library(foreach)
+library(doMC)
+
+no_cores <- detectCores() - 1
+
+nIter <- 3e2
+nBurnin <- 1e2
+nReps <- nRuns <- 20
+
+# We hypothesis System X > System Y.
+# Should reun 'Left' scenario in lines 119-129.
+
+
+# X <- read.csv("Test - X.csv")
+# Y <- read.csv("Test - Y.csv")
+system_C <- read.csv("System_C_Ratings.csv")
+
+
+allScenarios <- c(
+  "False",
+  "Left",
+  "Right"
+)
+
+myColnames <- c("obsMeanX", "obsMeanY", "obsMedianY", "obsMedianY", "obsMedianDiff",
+                "obsVarX", "obsVarY", "myBF", "moreyBF", "W", "pval_W", "pval_T",
+                "cohenD", paste0(100 * c(0.025, 0.25, 0.5, 0.75, 0.975), "% Q"))
+nColsResults <- length(myColnames)
+registerDoMC()
+
+analyzeSamples <- function(nIter, nBurnin, myCase, progBar = TRUE) {
+  switch(myCase,
+          "False" = {
+            x <- Y$value
+            y <- X$value
+            paired <- FALSE
+            oneSided <- FALSE
+          },
+	  "Left" = {
+            x <- Y$value
+            y <- X$value
+            paired <- TRUE
+            oneSided <- "left"
+          },
+	  "Right" = {
+            x <- Y$value
+            y <- X$value
+            paired <- TRUE
+            oneSided <- "right"
+          })
+
+  thisRow <- try(expr = {
+    if (paired) {
+      mySamples <- signRankGibbsSampler(x, y, nSamples = nIter + nBurnin, progBar = progBar)$deltaSamples[nBurnin:(nIter + nBurnin)]
+    } else {
+      mySamples <- rankSumGibbsSampler(x, y, nSamples = nIter + nBurnin, progBar = progBar)$deltaSamples[nBurnin:(nIter + nBurnin)]
+    }
+    rsQuants <- quantile(mySamples, probs = c(0.025, 0.25, 0.5, 0.75, 0.975))
+    bf10 <- computeBayesFactorOneZero(mySamples, priorParameter = 1 / sqrt(2), oneSided = oneSided)
+    moreyBf <- 1 / exp(ttestBF(x, y, rscale = 1 / sqrt(2), paired = paired)@bayesFactor$bf)
+
+    freqRes <- wilcox.test(x, y, paired = paired)
+    testStat <- unname(freqRes$statistic)
+    pVal <- unname(freqRes$p.value)
+    pValT <- t.test(x, y, paired = paired)$p.value
+    cohenD <- cohen.d(x, y, paired = paired)$estimate
+
+    obsMeanX <- mean(x)
+    obsMeanY <- mean(y)
+    obsMedianX <- median(x)
+    obsMedianY <- median(y)
+    obsMedianDiff <- median(x - y)
+    obsVarX <- var(x)
+    obsVarY <- var(y)
+
+    return(unname(c(obsMeanX, obsMeanY, obsMedianX, obsMedianY, obsMedianDiff, obsVarX,
+                    obsVarY, bf10, moreyBf, testStat, pVal, pValT, cohenD, rsQuants)))
+  }, silent = FALSE)
+  if (!is.numeric(thisRow)) {
+    thisRow <- rep(0, (nColsResults - 2))
+  }
+
+  return(thisRow)
+}
+
+#########################
+######## Run It! ########
+#########################
+# for (thisScenario in allScenarios) {
+#   myFilename <- paste0(thisScenario, ".Rdata")
+#   results <- matrix(ncol = nColsResults, nrow = 0, dimnames = list(NULL, myColnames))
+#   print(thisScenario)
+#   myResult <- foreach(k = 1:nRuns, .combine = 'rbind') %dopar% {
+#     analyzeSamples(myCase = thisScenario, nIter = nIter, nBurnin = nBurnin)
+#   }
+#   results <- rbind(results, myResult)
+#   rownames(results) <- NULL
+#   save(results, file = myFilename)
+#   print(mean(results[, "myBF"]))
+# }
+
+thisScenario <- "Left"
+myFilename <- paste0(thisScenario, ".Rdata")
+results <- matrix(ncol = nColsResults, nrow = 0, dimnames = list(NULL, myColnames))
+print(thisScenario)
+myResult <- foreach(k = 1:nRuns, .combine = 'rbind') %dopar% {
+  analyzeSamples(myCase = thisScenario, nIter = nIter, nBurnin = nBurnin)
+}
+results <- rbind(results, myResult)
+rownames(results) <- NULL
+save(results, file = myFilename)
+print(mean(results[, "myBF"]))
+
+
