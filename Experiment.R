@@ -30,7 +30,10 @@ nReps <- nRuns <- 20
 
 # X <- read.csv("Test - X.csv")
 # Y <- read.csv("Test - Y.csv")
-system_C <- read.csv("System_C_Ratings.csv")
+system_C <- read.csv("C_Scores.csv")
+system_AT <- read.csv("AT_Scores.csv")
+X <- as.matrix(system_C$Remuneration)
+Y <- as.matrix(system_AT$Remuneration)
 
 
 allScenarios <- c(
@@ -48,20 +51,20 @@ registerDoMC()
 analyzeSamples <- function(nIter, nBurnin, myCase, progBar = TRUE) {
   switch(myCase,
           "False" = {
-            x <- Y$value
-            y <- X$value
-            paired <- FALSE
+            x <- Y
+            y <- X
+            paired <- TRUE
             oneSided <- FALSE
           },
 	  "Left" = {
-            x <- Y$value
-            y <- X$value
+            x <- Y
+            y <- X
             paired <- TRUE
             oneSided <- "left"
           },
 	  "Right" = {
-            x <- Y$value
-            y <- X$value
+            x <- Y
+            y <- X
             paired <- TRUE
             oneSided <- "right"
           })
@@ -125,7 +128,7 @@ myResult <- foreach(k = 1:nRuns, .combine = 'rbind') %dopar% {
 }
 results <- rbind(results, myResult)
 rownames(results) <- NULL
-save(results, file = myFilename)
+# save(results, file = myFilename)
 print(mean(results[, "myBF"]))
 
 
