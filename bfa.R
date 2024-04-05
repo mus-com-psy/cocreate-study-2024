@@ -1,0 +1,149 @@
+# Set working directory
+setwd("./")
+
+# Source the functions with the rankSumGibbsSampler and signRankGibbsSampler
+source('signRankSampler.R')
+source('rankSumSampler.R')
+
+# install.packages(c("effsize", "BayesFactor", "sn", "parallel", "logspline", "foreach", "doMC"))
+library(effsize)
+library(BayesFactor)
+library(sn)
+library(parallel)
+library(logspline)
+library(foreach)
+library(doMC)
+
+no_cores <- detectCores() - 1
+
+nIter <- 3e2
+nBurnin <- 1e2
+nReps <- nRuns <- 10
+
+system_C <- read.csv("C_Scores.csv")
+system_AT <- read.csv("AT_Scores.csv")
+
+allScenarios <- c(
+  "hyp1a",
+  "hyp1b",
+  "hyp1c",
+  "hyp2",
+  "hyp3a",
+  "hyp3b",
+  "hyp4",
+  "hyp5"
+)
+
+myColnames <- c("obsMeanX", "obsMeanY", "obsMedianY", "obsMedianY", "obsMedianDiff",
+                "obsVarX", "obsVarY", "myBF", "moreyBF", "W", "pval_W", "pval_T",
+                "cohenD", paste0(100 * c(0.025, 0.25, 0.5, 0.75, 0.975), "% Q"))
+nColsResults <- length(myColnames)
+registerDoMC()
+
+# For hyp1a, hyp1b, hyp1c, we are hypothesizing BF_10 greater than 1.
+# For hyp2, we are hypothesizing BF_10 less than 1.
+# For hyp3a, hyp3b, we are hypothesizing BF_10 greater than 1.
+# For hyp4, we are hypothesizing BF_10 greater than 1.
+# For hyp5, we are hypothesizing BF_10 less than 1.
+
+analyzeSamples <- function(nIter, nBurnin, myCase, progBar = TRUE) {
+  switch(myCase,
+          "hyp1a" = {
+            x <- system_C$Remuneration
+            y <- system_AT$Remuneration
+            paired <- TRUE
+            oneSided <-"right"
+          },
+          "hyp1b" = {
+            x <- system_C$Ethics
+            y <- system_AT$Ethics
+            paired <- TRUE
+            oneSided <-"right"
+          },
+          "hyp1c" = {
+            x <- system_C$Legal
+            y <- system_AT$Legal
+            paired <- TRUE
+            oneSided <-"right"
+          },
+          "hyp2" = {
+            x <- system_C$Pay_Preparedness
+            y <- system_AT$Pay_Preparedness
+            paired <- TRUE
+            oneSided <- FALSE
+          },
+          "hyp3a" = {
+            x <- system_C$Speed
+            y <- system_AT$Speed
+            paired <- TRUE
+            oneSided <- "left"
+          },
+          "hyp3b" = {
+            x <- system_C$Convenience
+            y <- system_AT$Convenience
+            paired <- TRUE
+            oneSided <- "left"
+          },
+          "hyp4" = {
+            x <- system_C$Tech_Support
+            y <- system_AT$Tech_Support
+            paired <- TRUE
+            oneSided <- "right"
+          },
+          "hyp5" = {
+            x <- system_C$Rethink
+            y <- system_AT$Rethink
+            paired <- TRUE
+            oneSided <- FALSE
+          },
+         )
+
+  thisRow <- try(expr = {
+    if (paired) {
+      mySamples <- signRankGibbsSampler(x, y, nSamples = nIter + nBurnin, progBar = progBar)$deltaSamples[nBurnin:(nIter + nBurnin)]
+    } else {
+      mySamples <- rankSumGibbsSampler(x, y, nSamples = nIter + nBurnin, progBar = progBar)$deltaSamples[nBurnin:(nIter + nBurnin)]
+    }
+    rsQuants <- quantile(mySamples, probs = c(0.025, 0.25, 0.5, 0.75, 0.975))
+    bf10 <- computeBayesFactorOneZero(mySamples, priorParameter = 1 / sqrt(2), oneSided = oneSided)
+    moreyBf <- 1 / exp(ttestBF(x, y, rscale = 1 / sqrt(2), paired = paired)@bayesFactor$bf)
+
+    freqRes <- wilcox.test(x, y, paired = paired)
+    testStat <- unname(freqRes$statistic)
+    pVal <- unname(freqRes$p.value)
+    pValT <- t.test(x, y, paired = paired)$p.value
+    cohenD <- cohen.d(x, y, paired = paired)$estimate
+
+    obsMeanX <- mean(x)
+    obsMeanY <- mean(y)
+    obsMedianX <- median(x)
+    obsMedianY <- median(y)
+    obsMedianDiff <- median(x - y)
+    obsVarX <- var(x)
+    obsVarY <- var(y)
+
+    return(unname(c(obsMeanX, obsMeanY, obsMedianX, obsMedianY, obsMedianDiff, obsVarX,
+                    obsVarY, bf10, moreyBf, testStat, pVal, pValT, cohenD, rsQuants)))
+  }, silent = FALSE)
+  if (!is.numeric(thisRow)) {
+    thisRow <- rep(0, (nColsResults - 2))
+  }
+
+  return(thisRow)
+}
+
+#########################
+######## Run It! ########
+#########################
+for (thisScenario in allScenarios) {
+  myFilename <- paste0(thisScenario, ".Rdata")
+  results <- matrix(ncol = nColsResults, nrow = 0, dimnames = list(NULL, myColnames))
+  print(thisScenario)
+  myResult <- foreach(k = 1:nRuns, .combine = 'rbind') %dopar% {
+    analyzeSamples(myCase = thisScenario, nIter = nIter, nBurnin = nBurnin)
+  }
+  results <- rbind(results, myResult)
+  rownames(results) <- NULL
+  save(results, file = myFilename)
+  print(mean(results[, "myBF"]))
+}
