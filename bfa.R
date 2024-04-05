@@ -67,8 +67,8 @@ analyzeSamples <- function(nIter, nBurnin, myCase, progBar = TRUE) {
             oneSided <-"right"
           },
           "hyp2" = {
-            x <- system_C$Pay_Preparedness
-            y <- system_AT$Pay_Preparedness
+            x <- system_C$PayPreparedness
+            y <- system_AT$PayPreparedness
             paired <- TRUE
             oneSided <- FALSE
           },
@@ -85,8 +85,8 @@ analyzeSamples <- function(nIter, nBurnin, myCase, progBar = TRUE) {
             oneSided <- "left"
           },
           "hyp4" = {
-            x <- system_C$Tech_Support
-            y <- system_AT$Tech_Support
+            x <- system_C$TechSupport
+            y <- system_AT$TechSupport
             paired <- TRUE
             oneSided <- "right"
           },
@@ -144,6 +144,6 @@ for (thisScenario in allScenarios) {
   }
   results <- rbind(results, myResult)
   rownames(results) <- NULL
-  save(results, file = myFilename)
+  # save(results, file = myFilename)
   print(mean(results[, "myBF"]))
 }
