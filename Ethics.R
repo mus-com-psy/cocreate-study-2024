@@ -32,8 +32,8 @@ nReps <- nRuns <- 20
 # Y <- read.csv("Test - Y.csv")
 system_C <- read.csv("C_Scores.csv")
 system_AT <- read.csv("AT_Scores.csv")
-X <- as.matrix(system_C$Remuneration)
-Y <- as.matrix(system_AT$Remuneration)
+X <- system_C$Ethics
+Y <- system_AT$Ethics
 
 
 allScenarios <- c(
